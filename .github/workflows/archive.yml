@@ -1,0 +1,35 @@
+name: archive
+
+on:
+  schedule:
+    - cron: "13 3 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Move previous month to release assets
+        run: |
+          PREV=$(date -u -d "$(date -u +%Y-%m-01) -1 day" +%Y%m)
+          FILES=$(ls data/pm/${PREV}*.csv.gz data/kalshi/${PREV}*.csv.gz 2>/dev/null || true)
+          [ -z "$FILES" ] && { echo "nothing to archive for $PREV"; exit 0; }
+          gh release create "data-$PREV" --title "Data archive $PREV" --notes "Hourly snapshots for $PREV" $FILES || gh release upload "data-$PREV" $FILES --clobber
+          git config user.name "collect-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git rm -q $FILES
+          git commit -m "archive $PREV to release assets"
+          git pull --rebase --autostash origin main
+          git push origin main
+      - name: Notify
+        run: |
+          curl -s -m 10 -H "Content-Type: application/json" \
+            -d "{\"username\":\"prediction-lab\",\"content\":\"📦 monthly archive complete\"}" \
+            "${{ secrets.DISCORD_WEBHOOK }}" > /dev/null || true

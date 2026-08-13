@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Snapshot Polymarket + Kalshi: top markets by volume, plus everything
-trading >= 0.90 (sure-thing decay study universe).
+"""Hourly full-universe snapshot of Polymarket + Kalshi (public APIs, no auth).
 
-Per snapshot (run every 2h by Actions):
-  data/pm/YYYYMMDD.csv.gz      one row per Polymarket market: metadata,
-                               yes-token book top 5 levels each side
-  data/kalshi/YYYYMMDD.csv.gz  one row per Kalshi market: bid/ask/last/
-                               volume/OI (+ book top level)
+EVERY active market on both venues, no selection filters — completeness is the
+point (no survivorship bias, full price distribution for longshot / near-
+certainty studies). Polymarket rows include top-5 order book levels per side
+(book fetched when the market has any 24h volume; dust books are empty anyway).
 
-Files are per-day gzip; each run appends a gzip member (valid concatenation).
-Stdlib only.
+Output (per-day gzip, one member appended per run):
+  data/pm/YYYYMMDD.csv.gz
+  data/kalshi/YYYYMMDD.csv.gz
+
+Stdlib only. Designed for GitHub Actions on a public repo (unlimited minutes).
 """
 import csv, gzip, io, json, sys, time
 from datetime import datetime, timezone
@@ -17,12 +18,11 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 BASE = Path(__file__).resolve().parent
-UA = "Mozilla/5.0 (compatible; prediction-lab/1.0)"
-TOP_N = 150
-HI_PX = 0.90
+UA = "Mozilla/5.0 (compatible; prediction-lab/2.0)"
 NOW = datetime.now(timezone.utc)
 TS = NOW.strftime("%Y-%m-%dT%H:%M")
 DAY = NOW.strftime("%Y%m%d")
+MAX_MARKETS = 20000
 
 
 def get(url, retries=3):
@@ -52,52 +52,44 @@ def append_gz(path, fieldnames, rows):
 
 
 def levels(side, n=5):
-    out = []
-    for lvl in (side or [])[:n]:
-        if isinstance(lvl, dict):
-            out.append(f"{lvl.get('price')}:{lvl.get('size')}")
-        else:
-            out.append(f"{lvl[0]}:{lvl[1]}")
-    return "|".join(out)
+    return "|".join(f"{l.get('price')}:{l.get('size')}" for l in (side or [])[:n])
 
 
 def polymarket():
     markets, offset = [], 0
-    while offset < 500:
+    while offset < MAX_MARKETS:
         d = get("https://gamma-api.polymarket.com/markets?active=true"
-                f"&closed=false&order=volume24hr&ascending=false"
-                f"&limit=100&offset={offset}")
-        time.sleep(0.2)
+                f"&closed=false&limit=100&offset={offset}")
+        time.sleep(0.12)
         if not d:
             break
         markets += d
+        if len(d) < 100:
+            break
         offset += 100
-    picked, seen = [], set()
-    for i, m in enumerate(markets):
-        if m.get("id") in seen:
+    seen, rows = set(), []
+    for m in markets:
+        mid = m.get("id")
+        if not mid or mid in seen:
             continue
-        try:
-            prices = [float(p) for p in json.loads(m.get("outcomePrices") or "[]")]
-        except (ValueError, TypeError):
-            prices = []
-        hi = prices and max(prices) >= HI_PX and max(prices) < 1.0 \
-            and float(m.get("volume24hr") or 0) > 500
-        if i < TOP_N or hi:
-            seen.add(m.get("id"))
-            picked.append(m)
-    rows = []
-    for m in picked:
-        try:
-            tok = json.loads(m.get("clobTokenIds") or "[]")[0]
-        except (ValueError, IndexError):
-            tok = None
-        book = get(f"https://clob.polymarket.com/book?token_id={tok}") if tok else None
-        time.sleep(0.12)
-        # CLOB books list bids ascending / asks descending; best = last element
-        bids = sorted(book.get("bids", []), key=lambda x: -float(x["price"]))[:5] if book else []
-        asks = sorted(book.get("asks", []), key=lambda x: float(x["price"]))[:5] if book else []
+        seen.add(mid)
+        vol24 = float(m.get("volume24hr") or 0)
+        bids = asks = []
+        if vol24 > 0:
+            try:
+                tok = json.loads(m.get("clobTokenIds") or "[]")[0]
+            except (ValueError, IndexError):
+                tok = None
+            book = get(f"https://clob.polymarket.com/book?token_id={tok}",
+                       retries=1) if tok else None
+            time.sleep(0.1)
+            if book:
+                bids = sorted(book.get("bids", []),
+                              key=lambda x: -float(x["price"]))[:5]
+                asks = sorted(book.get("asks", []),
+                              key=lambda x: float(x["price"]))[:5]
         rows.append({
-            "ts": TS, "id": m.get("id"), "slug": (m.get("slug") or "")[:80],
+            "ts": TS, "id": mid, "slug": (m.get("slug") or "")[:80],
             "question": (m.get("question") or "")[:160],
             "end_date": (m.get("endDate") or "")[:10],
             "outcomes": (m.get("outcomes") or "")[:60],
@@ -115,21 +107,16 @@ def polymarket():
 
 def kalshi():
     markets, cursor = [], ""
-    for _ in range(6):
+    for _ in range(25):
         d = get("https://api.elections.kalshi.com/trade-api/v2/markets"
                 f"?limit=1000&status=open&cursor={cursor}")
-        time.sleep(0.3)
+        time.sleep(0.25)
         if not d or not d.get("markets"):
             break
         markets += d["markets"]
         cursor = d.get("cursor") or ""
         if not cursor:
             break
-    markets.sort(key=lambda m: -(m.get("volume_24h") or 0))
-    picked = markets[:TOP_N] + [
-        m for m in markets[TOP_N:]
-        if (m.get("last_price") or 0) >= HI_PX * 100
-        and (m.get("volume_24h") or 0) > 100]
     rows = [{
         "ts": TS, "ticker": m.get("ticker"),
         "title": (m.get("title") or "")[:160],
@@ -138,17 +125,17 @@ def kalshi():
         "no_bid": m.get("no_bid"), "no_ask": m.get("no_ask"),
         "last": m.get("last_price"), "vol24h": m.get("volume_24h"),
         "volume": m.get("volume"), "oi": m.get("open_interest"),
-    } for m in picked]
+    } for m in markets]
     append_gz(BASE / "data" / "kalshi" / f"{DAY}.csv.gz",
               ["ts", "ticker", "title", "close_time", "yes_bid", "yes_ask",
                "no_bid", "no_ask", "last", "vol24h", "volume", "oi"],
               rows)
-    print(f"kalshi: {len(rows)} markets (of {len(markets)} open)")
+    print(f"kalshi: {len(rows)} markets")
     return len(rows)
 
 
 if __name__ == "__main__":
     npm = polymarket()
     nk = kalshi()
-    if npm + nk < 50:
+    if npm + nk < 500:
         sys.exit(f"too few markets captured ({npm}+{nk}) — treating as failure")

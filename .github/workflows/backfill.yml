@@ -1,34 +1,34 @@
-name: collect
+name: backfill
 
 on:
   schedule:
-    - cron: "23 * * * *"
+    - cron: "47 */3 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: collect
+  group: backfill
   cancel-in-progress: false
 
 jobs:
-  collect:
+  backfill:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
-      - name: Collect snapshots
-        run: python3 collect.py
+      - name: Backfill chunk
+        run: python3 backfill.py
       - name: Commit and push
         run: |
           git config user.name "collect-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data/
-          git diff --cached --quiet || { git commit -m "snapshot $(date -u +%FT%H:%M)"; git pull --rebase --autostash origin main; git push origin main; }
+          git diff --cached --quiet || { git commit -m "backfill chunk $(date -u +%FT%H:%M)"; git pull --rebase --autostash origin main; git push origin main; }
       - name: Notify failure
         if: failure()
         run: |
           curl -s -m 10 -H "Content-Type: application/json" \
-            -d "{\"username\":\"prediction-lab\",\"content\":\"🚨 **prediction-lab collect FAILED** — <https://github.com/Zorkeeen/prediction-lab/actions/runs/${{ github.run_id }}>\"}" \
+            -d "{\"username\":\"prediction-lab\",\"content\":\"🚨 **prediction-lab backfill FAILED** — <https://github.com/Zorkeeen/prediction-lab/actions/runs/${{ github.run_id }}>\"}" \
             "${{ secrets.DISCORD_WEBHOOK }}" > /dev/null || true

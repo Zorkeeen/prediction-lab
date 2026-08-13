@@ -1,7 +1,7 @@
 # Prediction Lab
 
-2-hourly snapshots of Polymarket + Kalshi via public APIs (no auth):
-top ~150 markets by 24h volume per venue, plus everything trading >= 0.90
+Hourly full-universe snapshots of Polymarket + Kalshi via public APIs (no auth):
+EVERY active market on both venues (no filters), plus resumable backfill of trading >= 0.90
 (sure-thing decay universe). Polymarket rows carry top-5 order book levels
 per side; Kalshi rows carry bid/ask/last/volume/open interest.
 
