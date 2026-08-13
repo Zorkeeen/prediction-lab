@@ -26,6 +26,15 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git add data/
           git diff --cached --quiet || { git commit -m "snapshot $(date -u +%FT%H:%M)"; git pull --rebase --autostash origin main; git push origin main; }
+      - name: Daily heartbeat
+        if: success()
+        run: |
+          if [ "$(date -u +%H)" = "12" ]; then
+            PM=$(python3 -c "import gzip,io,csv,datetime; d=datetime.datetime.utcnow().strftime('%Y%m%d'); print(len({r['id'] for r in csv.DictReader(io.TextIOWrapper(gzip.open(f'data/pm/{d}.csv.gz')))}))" 2>/dev/null || echo "?")
+            K=$(python3 -c "import gzip,io,csv,datetime; d=datetime.datetime.utcnow().strftime('%Y%m%d'); print(len({r['ticker'] for r in csv.DictReader(io.TextIOWrapper(gzip.open(f'data/kalshi/{d}.csv.gz')))}))" 2>/dev/null || echo "?")
+            curl -s -m 10 -H "Content-Type: application/json"               -d "{"username":"prediction-lab","content":"💓 daily heartbeat: tracking $PM Polymarket + $K Kalshi markets, hourly runs healthy"}"               "${{ secrets.DISCORD_WEBHOOK }}" > /dev/null || true
+          fi
+
       - name: Notify failure
         if: failure()
         run: |
