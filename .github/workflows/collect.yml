@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Collect snapshots
-        run: python3 collect.py
+        run: python3 collect.py 2>&1 | tee run.log
       - name: Commit and push
         run: |
           git config user.name "collect-bot"
@@ -38,9 +38,10 @@ jobs:
       - name: Notify success
         if: success()
         run: |
-          MSG=$(git log -1 --format=%s 2>/dev/null || echo "run finished")
+          PM=$(grep -oP 'polymarket: \K\d+' run.log || echo "?")
+          KA=$(grep -oP 'kalshi: \K\d+' run.log || echo "?")
           curl -s -m 10 -H "Content-Type: application/json" \
-            -d "{\"username\":\"prediction-lab\",\"content\":\"✅ collect: $MSG\"}" \
+            -d "{\"username\":\"prediction-lab\",\"content\":\"✅ **Snapshot $(date -u +%H:%M) UTC** — Polymarket $PM markets (order books) · Kalshi $KA markets (quotes/OI)\"}" \
             "${{ secrets.DISCORD_WEBHOOK }}" > /dev/null || true
 
       - name: Notify failure

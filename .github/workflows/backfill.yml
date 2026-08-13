@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Backfill chunk
-        run: python3 backfill.py
+        run: python3 backfill.py 2>&1 | tee run.log
       - name: Commit and push
         run: |
           git config user.name "collect-bot"
@@ -29,9 +29,13 @@ jobs:
       - name: Notify success
         if: success()
         run: |
-          MSG=$(git log -1 --format=%s 2>/dev/null || echo "run finished")
+          LINE=$(grep -oP 'backfill: .*' run.log | tail -1 || echo "already complete")
+          N=$(echo "$LINE" | grep -oP 'backfill: \K\d+' || echo "0")
+          OFF=$(echo "$LINE" | grep -oP 'offset \K[\d]+->[\d]+' || echo "?")
+          PTS=$(echo "$LINE" | grep -oP '\K\d+(?= history points)' || echo "?")
+          DONE=$(echo "$LINE" | grep -q 'done=True' && echo "COMPLETE 🎉" || echo "more to go")
           curl -s -m 10 -H "Content-Type: application/json" \
-            -d "{\"username\":\"prediction-lab\",\"content\":\"✅ backfill: $MSG\"}" \
+            -d "{\"username\":\"prediction-lab\",\"content\":\"✅ **Historical backfill chunk** — $N resolved markets processed (offset $OFF), $PTS daily price points archived · status: $DONE\"}" \
             "${{ secrets.DISCORD_WEBHOOK }}" > /dev/null || true
 
       - name: Notify failure
