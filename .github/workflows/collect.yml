@@ -1,0 +1,34 @@
+name: collect
+
+on:
+  schedule:
+    - cron: "23 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect snapshots
+        run: python3 collect.py
+      - name: Commit and push
+        run: |
+          git config user.name "collect-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || { git commit -m "snapshot $(date -u +%FT%H:%M)"; git pull --rebase --autostash origin main; git push origin main; }
+      - name: Notify failure
+        if: failure()
+        run: |
+          curl -s -m 10 -H "Content-Type: application/json" \
+            -d "{\"username\":\"prediction-lab\",\"content\":\"🚨 **prediction-lab run FAILED** — <https://github.com/Zorkeeen/prediction-lab/actions/runs/${{ github.run_id }}>\"}" \
+            "${{ secrets.DISCORD_WEBHOOK }}" > /dev/null || true
