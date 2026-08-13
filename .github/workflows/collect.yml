@@ -35,6 +35,14 @@ jobs:
             curl -s -m 10 -H "Content-Type: application/json"               -d "{"username":"prediction-lab","content":"💓 daily heartbeat: tracking $PM Polymarket + $K Kalshi markets, hourly runs healthy"}"               "${{ secrets.DISCORD_WEBHOOK }}" > /dev/null || true
           fi
 
+      - name: Notify success
+        if: success()
+        run: |
+          MSG=$(git log -1 --format=%s 2>/dev/null || echo "run finished")
+          curl -s -m 10 -H "Content-Type: application/json" \
+            -d "{\"username\":\"prediction-lab\",\"content\":\"✅ collect: $MSG\"}" \
+            "${{ secrets.DISCORD_WEBHOOK }}" > /dev/null || true
+
       - name: Notify failure
         if: failure()
         run: |
