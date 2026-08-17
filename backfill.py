@@ -58,6 +58,7 @@ def main():
     offset = start
     while n < BATCH:
         d = get("https://gamma-api.polymarket.com/markets?closed=true"
+                "&order=volume&ascending=false"
                 f"&limit=100&offset={offset}")
         time.sleep(0.12)
         if d is None:
@@ -77,7 +78,9 @@ def main():
                 tok = json.loads(m.get("clobTokenIds") or "[]")[0]
             except (ValueError, IndexError):
                 tok = None
-            if tok and float(m.get("volume") or 0) > 100:
+            # ["0","0"] means the API no longer retains this market's data
+            stale = (m.get("outcomePrices") or "").replace(" ", "") == '["0","0"]'
+            if tok and not stale and float(m.get("volume") or 0) > 100:
                 h = get("https://clob.polymarket.com/prices-history"
                         f"?market={tok}&interval=max&fidelity=1440", retries=1)
                 time.sleep(0.08)
