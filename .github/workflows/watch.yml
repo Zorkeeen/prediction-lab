@@ -1,0 +1,33 @@
+name: watch
+
+on:
+  schedule:
+    - cron: "5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 58
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fast-poll near-resolution markets
+        run: python3 watchlist.py
+      - name: Commit and push
+        run: |
+          git config user.name "collect-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || { git commit -m "watch $(date -u +%FT%H:%M)"; git pull --rebase --autostash origin main; git push origin main; }
+      - name: Notify failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python3 notify.py fail "https://github.com/Zorkeeen/prediction-lab/actions/runs/${{ github.run_id }}" || true

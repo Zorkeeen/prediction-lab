@@ -91,16 +91,45 @@ def polymarket():
         rows.append({
             "ts": TS, "id": mid, "slug": (m.get("slug") or "")[:80],
             "question": (m.get("question") or "")[:160],
-            "end_date": (m.get("endDate") or "")[:10],
+            # full timestamp, not just the date: for 1-day markets the hour
+            # decides whether the trade is live and what the ROI actually is
+            "end_date": (m.get("endDate") or "")[:19],
+            "uma_status": ";".join(json.loads(m.get("umaResolutionStatuses")
+                                              or "[]"))
+            if (m.get("umaResolutionStatuses") or "").startswith("[") else "",
+            "resolution_source": (m.get("resolutionSource") or "")[:80],
+            "uma_bond": m.get("umaBond"),
             "outcomes": (m.get("outcomes") or "")[:60],
             "outcome_prices": (m.get("outcomePrices") or "")[:60],
             "vol24h": m.get("volume24hr"), "liquidity": m.get("liquidityNum"),
             "yes_bids": levels(bids), "yes_asks": levels(asks),
         })
     append_gz(BASE / "data" / "pm" / f"{DAY}.csv.gz",
-              ["ts", "id", "slug", "question", "end_date", "outcomes",
+              ["ts", "id", "slug", "question", "end_date", "uma_status",
+               "resolution_source", "uma_bond", "outcomes",
                "outcome_prices", "vol24h", "liquidity", "yes_bids", "yes_asks"],
               rows)
+    # resolution criteria change rarely - store once per market, not per snapshot
+    rules_path = BASE / "data" / "market_rules.csv"
+    known = set()
+    if rules_path.exists():
+        with open(rules_path, newline="", encoding="utf-8") as f:
+            known = {r["id"] for r in csv.DictReader(f)}
+    new = [m for m in picked if m.get("id") not in known]
+    if new:
+        write_header = not rules_path.exists()
+        with open(rules_path, "a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=["id", "slug", "end_date",
+                                              "resolution_source",
+                                              "description"])
+            if write_header:
+                w.writeheader()
+            for m in new:
+                w.writerow({"id": m.get("id"), "slug": (m.get("slug") or "")[:80],
+                            "end_date": (m.get("endDate") or "")[:19],
+                            "resolution_source": (m.get("resolutionSource") or "")[:120],
+                            "description": (m.get("description") or "")[:1200]})
+        print(f"rules: +{len(new)} markets")
     print(f"polymarket: {len(rows)} markets")
     return len(rows)
 
