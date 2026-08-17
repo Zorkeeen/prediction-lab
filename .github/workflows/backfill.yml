@@ -26,21 +26,14 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git add data/
           git diff --cached --quiet || { git commit -m "backfill chunk $(date -u +%FT%H:%M)"; git pull --rebase --autostash origin main; git push origin main; }
-      - name: Notify success
+      - name: Notify progress
         if: success()
-        run: |
-          LINE=$(grep -oP 'backfill: .*' run.log | tail -1 || echo "already complete")
-          N=$(echo "$LINE" | grep -oP 'backfill: \K\d+' || echo "0")
-          OFF=$(echo "$LINE" | grep -oP 'offset \K[\d]+->[\d]+' || echo "?")
-          PTS=$(echo "$LINE" | grep -oP '\K\d+(?= history points)' || echo "?")
-          DONE=$(echo "$LINE" | grep -q 'done=True' && echo "COMPLETE 🎉" || echo "more to go")
-          curl -s -m 10 -H "Content-Type: application/json" \
-            -d "{\"username\":\"prediction-lab\",\"content\":\"✅ **Historical backfill chunk** — $N resolved markets processed (offset $OFF), $PTS daily price points archived · status: $DONE\"}" \
-            "${{ secrets.DISCORD_WEBHOOK }}" > /dev/null || true
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python3 notify.py backfill || true
 
       - name: Notify failure
         if: failure()
-        run: |
-          curl -s -m 10 -H "Content-Type: application/json" \
-            -d "{\"username\":\"prediction-lab\",\"content\":\"🚨 **prediction-lab backfill FAILED** — <https://github.com/Zorkeeen/prediction-lab/actions/runs/${{ github.run_id }}>\"}" \
-            "${{ secrets.DISCORD_WEBHOOK }}" > /dev/null || true
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python3 notify.py fail "https://github.com/Zorkeeen/prediction-lab/actions/runs/${{ github.run_id }}" || true
