@@ -30,7 +30,7 @@ jobs:
         if: success()
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        run: python3 notify.py backfill || true
+        run: python3 notify.py backfill
 
       - name: Notify failure
         if: failure()
