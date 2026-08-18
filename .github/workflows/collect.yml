@@ -31,7 +31,7 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          if [ "$(date -u +%H)" = "12" ]; then python3 notify.py digest || true; fi
+          if [ "$(date -u +%H)" = "12" ]; then python3 notify.py digest; fi
 
       - name: Notify failure
         if: failure()
