@@ -8,26 +8,46 @@
 Reads DISCORD_WEBHOOK from env; prints instead of posting when unset.
 Stdlib only.
 """
-import csv, glob, gzip, json, os, sys
+import csv, glob, gzip, json, os, sys, time
 from datetime import date, datetime, timezone
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 DATA = Path(__file__).resolve().parent / "data"
 WEBHOOK = os.environ.get("DISCORD_WEBHOOK", "")
+UA = "prediction-lab/1.0 (+https://github.com/Zorkeeen/prediction-lab)"
 GREEN, BLUE, RED, PURPLE = 0x2ecc71, 0x3498db, 0xe74c3c, 0x9b59b6
 
 
 def post(embeds):
     if not WEBHOOK:
-        print(json.dumps(embeds, indent=1, ensure_ascii=False)[:3000])
+        print("DISCORD_WEBHOOK unset — printing instead:")
+        print(json.dumps(embeds, indent=1, ensure_ascii=False)[:2000])
         return
     body = json.dumps({"username": "prediction-lab",
                        "embeds": embeds}).encode()
-    with urlopen(Request(WEBHOOK, data=body,
-                         headers={"Content-Type": "application/json"}),
-                 timeout=15) as r:
-        r.read()
+    # Discord sits behind Cloudflare, which rejects the default
+    # "Python-urllib/3.x" User-Agent with 403 (error 1010) before the request
+    # ever reaches the Discord API. An explicit User-Agent is mandatory.
+    req = Request(WEBHOOK, data=body,
+                  headers={"Content-Type": "application/json",
+                           "User-Agent": UA})
+    last = ""
+    for attempt in range(3):
+        try:
+            with urlopen(req, timeout=15) as r:
+                r.read()
+                print(f"discord ok: HTTP {r.status}")
+                return
+        except HTTPError as e:
+            last = f"HTTP {e.code} {e.reason}: {e.read()[:300]!r}"
+            if e.code not in (429, 500, 502, 503, 504):
+                break
+        except URLError as e:
+            last = f"URLError: {e.reason}"
+        time.sleep(2 * (attempt + 1))
+    raise SystemExit(f"DISCORD POST FAILED — {last}")
 
 
 def read_gz_rows(pattern):
